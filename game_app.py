@@ -35,8 +35,8 @@ markup = r"""
     --btn2: #178adf;
   }
   body { margin: 0; background: var(--bg); color: #e2e8f0; font-family: "Segoe UI", sans-serif; }
-  #wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 10px; }
-  canvas { border: 6px solid var(--frame); border-radius: 16px; box-shadow: 0 14px 32px rgba(0,0,0,0.4); width: min(94vw, 360px); height: auto; }
+  #wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 10px; padding-bottom: 220px; box-sizing: border-box; }
+  canvas { border: 6px solid var(--frame); border-radius: 16px; box-shadow: 0 14px 32px rgba(0,0,0,0.4); width: min(98vw, 420px); height: auto; display: block; }
   .hud { display: flex; gap: 8px; font-weight: 700; align-items: center; flex-wrap: wrap; justify-content: center; }
   .pill { background: var(--pill-bg); padding: 6px 10px; border-radius: 999px; border: 1px solid var(--pill-border); color: var(--pill-text); }
   .btn { background: linear-gradient(180deg, var(--btn1), var(--btn2)); color: #0a1525; border: none; border-radius: 10px; padding: 7px 14px; cursor: pointer; font-weight: 800; box-shadow: 0 4px 12px rgba(0,0,0,0.25); }
@@ -63,7 +63,7 @@ markup = r"""
   <div class="hud">
     <label>Theme Select: <select id="themeSelect"></select></label>
   </div>
-  <canvas id="lcd" width="360" height="440"></canvas>
+  <canvas id="lcd" width="420" height="450"></canvas>
   <div class="soft">Combo: slow -> fever = rainbow. Missions, wind, magnet, reflector, ghost replay. Enter/Space/Restart to retry. Mobile: swipe field or use joystick.</div>
 </div>
 <script>
@@ -653,12 +653,20 @@ markup = r"""
   });
   const mobileBar = document.createElement("div");
   mobileBar.style.display = "flex";
+  mobileBar.style.flexDirection = "column";
+  mobileBar.style.alignItems = "center";
   mobileBar.style.gap = "10px";
-  mobileBar.style.marginTop = "6px";
-  mobileBar.style.flexWrap = "wrap";
-  mobileBar.style.justifyContent = "center";
-  mobileBar.appendChild(leftBtn);
-  mobileBar.appendChild(rightBtn);
+  mobileBar.style.marginTop = "8px";
+  mobileBar.style.marginBottom = "16px";
+  mobileBar.style.width = "100%";
+  mobileBar.style.maxWidth = "480px";
+  const btnRow = document.createElement("div");
+  btnRow.style.display = "flex";
+  btnRow.style.gap = "10px";
+  btnRow.style.justifyContent = "center";
+  btnRow.appendChild(leftBtn);
+  btnRow.appendChild(rightBtn);
+  mobileBar.appendChild(btnRow);
   document.getElementById("wrap").appendChild(mobileBar);
 
   leftBtn.addEventListener("pointerdown", () => { pressed.add("L"); ensureAudio(); updateVel(); });
@@ -751,4 +759,4 @@ markup = r"""
 </script>
 """
 
-html(markup, height=620, scrolling=False)
+html(markup, height=1200, scrolling=False)
