@@ -36,13 +36,19 @@ markup = r"""
   }
   body { margin: 0; background: var(--bg); color: #e2e8f0; font-family: "Segoe UI", sans-serif; }
   #wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 10px; }
-  canvas { border: 6px solid var(--frame); border-radius: 16px; box-shadow: 0 14px 32px rgba(0,0,0,0.4); }
+  canvas { border: 6px solid var(--frame); border-radius: 16px; box-shadow: 0 14px 32px rgba(0,0,0,0.4); width: min(94vw, 360px); height: auto; }
   .hud { display: flex; gap: 8px; font-weight: 700; align-items: center; flex-wrap: wrap; justify-content: center; }
   .pill { background: var(--pill-bg); padding: 6px 10px; border-radius: 999px; border: 1px solid var(--pill-border); color: var(--pill-text); }
   .btn { background: linear-gradient(180deg, var(--btn1), var(--btn2)); color: #0a1525; border: none; border-radius: 10px; padding: 7px 14px; cursor: pointer; font-weight: 800; box-shadow: 0 4px 12px rgba(0,0,0,0.25); }
   .btn:active { transform: translateY(1px); }
   .soft { color: #9ca3af; font-size: 13px; text-align: center; }
   select { padding: 4px 8px; border-radius: 8px; border: 1px solid #233044; background: #0f172a; color: #e5e7eb; }
+  .joy-wrap { width: 110px; height: 110px; border-radius: 50%; border: 2px solid #233044; background: rgba(31,41,55,0.5); position: relative; touch-action: none; }
+  .joy-knob { width: 42px; height: 42px; border-radius: 50%; background: linear-gradient(180deg, #22d3ee, #0ea5e9); position: absolute; left: 34px; top: 34px; box-shadow: 0 4px 10px rgba(0,0,0,0.35); }
+  @media (max-width: 600px) {
+    .hud { gap: 6px; }
+    .pill { padding: 5px 8px; font-size: 12px; }
+  }
 </style>
 <div id="wrap">
   <div class="hud">
@@ -58,7 +64,7 @@ markup = r"""
     <label>Theme Select: <select id="themeSelect"></select></label>
   </div>
   <canvas id="lcd" width="360" height="440"></canvas>
-  <div class="soft">Combo: slow -> fever = rainbow. Missions, wind, magnet, reflector, ghost replay. Enter/Space/Restart to retry. Mobile: tap/drag the field or use buttons.</div>
+  <div class="soft">Combo: slow -> fever = rainbow. Missions, wind, magnet, reflector, ghost replay. Enter/Space/Restart to retry. Mobile: swipe field or use joystick.</div>
 </div>
 <script>
 (() => {
@@ -678,6 +684,46 @@ markup = r"""
   });
   cvs.addEventListener("pointerup", () => { dragActive = false; });
   cvs.addEventListener("pointerleave", () => { dragActive = false; });
+
+  // pseudo joystick (mobile friendly)
+  const joyWrap = document.createElement("div");
+  joyWrap.className = "joy-wrap";
+  const joyKnob = document.createElement("div");
+  joyKnob.className = "joy-knob";
+  joyWrap.appendChild(joyKnob);
+  mobileBar.appendChild(joyWrap);
+  let joyActive = false;
+  let joyCenter = { x: 0, y: 0 };
+  function setJoyPos(dx, dy) {
+    const radius = 35;
+    const len = Math.hypot(dx, dy);
+    const scale = len > radius ? radius / len : 1;
+    joyKnob.style.left = `${34 + dx * scale}px`;
+    joyKnob.style.top = `${34 + dy * scale}px`;
+  }
+  function joyStart(e) {
+    joyActive = true;
+    const rect = joyWrap.getBoundingClientRect();
+    joyCenter = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    joyMove(e);
+  }
+  function joyMove(e) {
+    if (!joyActive) return;
+    const dx = e.clientX - joyCenter.x;
+    const dy = e.clientY - joyCenter.y;
+    setJoyPos(dx, dy);
+    const normX = Math.max(-1, Math.min(1, dx / 35));
+    player.vx = normX * 140;
+  }
+  function joyEnd() {
+    joyActive = false;
+    setJoyPos(0, 0);
+    player.vx = 0;
+  }
+  joyWrap.addEventListener("pointerdown", e => { ensureAudio(); joyStart(e); });
+  joyWrap.addEventListener("pointermove", joyMove);
+  joyWrap.addEventListener("pointerup", joyEnd);
+  joyWrap.addEventListener("pointerleave", joyEnd);
 
   restartBtn.addEventListener("click", () => { ensureAudio(); reset(); });
 
