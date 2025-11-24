@@ -658,20 +658,23 @@ markup = r"""
   leftBtn.addEventListener("pointerup", () => { pressed.delete("L"); updateVel(); });
   rightBtn.addEventListener("pointerup", () => { pressed.delete("R"); updateVel(); });
 
-  // mobile drag/tap to move
+  // mobile: swipe to move (tap alone does not move)
   let dragActive = false;
-  function moveToPointer(clientX) {
-    const rect = cvs.getBoundingClientRect();
-    const x = clientX - rect.left;
-    player.x = Math.max(6, Math.min(cvs.width - player.w - 6, x - player.w / 2));
+  let dragStartX = 0;
+  let dragStartPlayer = 0;
+  function clampPlayer(x) {
+    return Math.max(6, Math.min(cvs.width - player.w - 6, x));
   }
   cvs.addEventListener("pointerdown", e => {
     dragActive = true;
+    dragStartX = e.clientX;
+    dragStartPlayer = player.x;
     ensureAudio();
-    moveToPointer(e.clientX);
   });
   cvs.addEventListener("pointermove", e => {
-    if (dragActive) moveToPointer(e.clientX);
+    if (!dragActive) return;
+    const dx = e.clientX - dragStartX;
+    player.x = clampPlayer(dragStartPlayer + dx);
   });
   cvs.addEventListener("pointerup", () => { dragActive = false; });
   cvs.addEventListener("pointerleave", () => { dragActive = false; });
