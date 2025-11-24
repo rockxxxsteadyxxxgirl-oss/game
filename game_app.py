@@ -58,7 +58,7 @@ markup = r"""
     <label>Theme Select: <select id="themeSelect"></select></label>
   </div>
   <canvas id="lcd" width="360" height="440"></canvas>
-  <div class="soft">Combo: slow -> fever = rainbow. Missions, wind, magnet, reflector, ghost replay. Enter/Space/Restart to retry.</div>
+  <div class="soft">Combo: slow -> fever = rainbow. Missions, wind, magnet, reflector, ghost replay. Enter/Space/Restart to retry. Mobile: tap/drag the field or use buttons.</div>
 </div>
 <script>
 (() => {
@@ -657,6 +657,24 @@ markup = r"""
   rightBtn.addEventListener("pointerdown", () => { pressed.add("R"); ensureAudio(); updateVel(); });
   leftBtn.addEventListener("pointerup", () => { pressed.delete("L"); updateVel(); });
   rightBtn.addEventListener("pointerup", () => { pressed.delete("R"); updateVel(); });
+
+  // mobile drag/tap to move
+  let dragActive = false;
+  function moveToPointer(clientX) {
+    const rect = cvs.getBoundingClientRect();
+    const x = clientX - rect.left;
+    player.x = Math.max(6, Math.min(cvs.width - player.w - 6, x - player.w / 2));
+  }
+  cvs.addEventListener("pointerdown", e => {
+    dragActive = true;
+    ensureAudio();
+    moveToPointer(e.clientX);
+  });
+  cvs.addEventListener("pointermove", e => {
+    if (dragActive) moveToPointer(e.clientX);
+  });
+  cvs.addEventListener("pointerup", () => { dragActive = false; });
+  cvs.addEventListener("pointerleave", () => { dragActive = false; });
 
   restartBtn.addEventListener("click", () => { ensureAudio(); reset(); });
 
