@@ -1,14 +1,13 @@
 """
 Game & Watch style catch game (Streamlit + vanilla JS).
-- ゆっくりスタート (spawnBase=3.0)、時間で難化
-- 特殊宝石: スロー/フィーバー/マグネット/リフレクター/レインボー
-- コンボ: スロー→フィーバー連続でレインボー発動（落下停止＆3倍）
-- 時限ミッション: 30秒ごとに小目標、報酬で断片+1やシールド付与
-- 断片3つでテーマ進化（アンロックを保存＆選択可）
-- 風と床ドリフト、磁力吸引、反射落下でプレイフィール変化
-- ゴースト：前プレイの軌跡を再生（自己対戦）
-- BGM: スコア帯でレイヤー追加（リード/ベース/ハット）
-- 操作: 左右キー or A/D, Enter/Space/Restart で再開、タッチボタンあり
+- Starts easy (spawnBase=3.0) and ramps difficulty over time
+- Special gems: slow / fever / magnet / reflector / rainbow
+- Combo: slow -> fever chain triggers rainbow (near-stop + 3x score)
+- Timed missions every 30s; rewards = fragment + shield
+- Collect 3 fragments to unlock/advance visual themes (saved to localStorage)
+- Wind & drifting floor, magnet pull, reflector bounces, ghost replay
+- BGM with layered lead/bass/hat/pad; tempo speeds up at higher scores
+- Controls: Left/Right or A/D, Enter/Space/Restart to restart, touch buttons included
 """
 
 import streamlit as st
@@ -18,7 +17,9 @@ from streamlit.components.v1 import html
 st.set_page_config(page_title="Game & Watch Catch", page_icon="GW", layout="centered")
 
 st.title("Game & Watch style - Evolving look")
-st.caption("ゆっくり始まり、時間でじわじわ難化。特殊宝石コンボでレインボー！ 断片を集めてテーマを解放。")
+st.caption(
+    "Special gem combos trigger rainbow mode; fragments unlock new themes. Wind, missions, ghost replay, and layered chiptune BGM."
+)
 
 markup = r"""
 <style>
@@ -57,7 +58,7 @@ markup = r"""
     <label>Theme Select: <select id="themeSelect"></select></label>
   </div>
   <canvas id="lcd" width="360" height="440"></canvas>
-  <div class="soft">特殊宝石コンボ: スロー→フィーバーでレインボー発動。Enter/Space/Restartで再スタート。風・磁力・反射・ミッションで毎回違う展開。</div>
+  <div class="soft">Combo: slow -> fever = rainbow. Missions, wind, magnet, reflector, ghost replay. Enter/Space/Restart to retry.</div>
 </div>
 <script>
 (() => {
@@ -117,7 +118,7 @@ markup = r"""
 
   let player, drops, sparks, score, lives, running, speedBase, spawnBase, spawnTimer, last, startedAt;
   let effects = { slow: 0, fever: 0, rainbow: 0, magnet: 0, reflector: 0, shield: 0 };
-  let chainStage = 0; // 0 none,1 slow,2 fever->rainbow
+  let chainStage = 0; // 0 none, 1 slow, chain to fever -> rainbow
   let audioCtx = null;
   let bgmInterval = null;
   let wind = 0;
@@ -130,6 +131,7 @@ markup = r"""
 
   let ghostData = null;
   let ghostSample = [];
+  let themeIndex = selectedTheme;
 
   function initGhost() {
     try {
@@ -200,24 +202,44 @@ markup = r"""
     }
     audioCtx = new AudioContext();
     const master = audioCtx.createGain();
-    master.gain.value = 0.06;
+    master.gain.value = 0.07;
     master.connect(audioCtx.destination);
     const leadGain = audioCtx.createGain(); leadGain.gain.value = 1.0; leadGain.connect(master);
-    const bassGain = audioCtx.createGain(); bassGain.gain.value = 0.55; bassGain.connect(master);
+    const bassGain = audioCtx.createGain(); bassGain.gain.value = 0.6; bassGain.connect(master);
     const hatGain = audioCtx.createGain(); hatGain.gain.value = 0.35; hatGain.connect(master);
+    const padGain = audioCtx.createGain(); padGain.gain.value = 0.3; padGain.connect(master);
+
+    const chords = [
+      [196, 247, 294], // Gm-ish
+      [220, 262, 330], // A sus
+      [174, 220, 262], // F-ish
+      [247, 311, 370], // Bdim-ish
+    ];
+
+    function padChord(freqs, length = 0.9) {
+      freqs.forEach((f, i) => {
+        blip(f, length, padGain, 0.15, i % 2 === 0 ? "triangle" : "sine");
+      });
+    }
+
     let step = 0;
-    bgmInterval = setInterval(() => {
-      const leadNotes = [196, 220, 247, 262, 294, 330, 349];
-      blip(leadNotes[step % leadNotes.length], 0.5, leadGain, 0.35, "square");
-      if (score >= 80) {
-        const bassNotes = [98, 110, 123, 131];
-        blip(bassNotes[step % bassNotes.length], 0.65, bassGain, 0.25, "triangle");
-      }
-      if (score >= 180 && step % 2 === 0) {
-        blip(760, 0.15, hatGain, 0.18, "sawtooth");
-      }
+    function loopBeat() {
+      const base = 520;
+      const bpmAdjust = score >= 300 ? 0.75 : score >= 150 ? 0.85 : 1.0;
+      const interval = base * bpmAdjust;
+      const chord = chords[step % chords.length];
+      const leadNotes = [...chord, chord[0] * 2];
+      const ln = leadNotes[(step * 2) % leadNotes.length];
+      blip(ln, 0.35, leadGain, 0.32, "square");
+      if (step % 2 === 0) blip(chord[0] / 2, 0.6, bassGain, 0.28, "triangle");
+      blip(820 + Math.random() * 120, 0.08, hatGain, 0.15, "sawtooth");
+      if (step % 4 === 0) padChord(chord);
+      if (effects.rainbow > 0) blip(1200 + Math.random() * 200, 0.18, leadGain, 0.22, "triangle");
       step++;
-    }, 600);
+      bgmInterval = setTimeout(loopBeat, interval);
+    }
+    if (bgmInterval) clearTimeout(bgmInterval);
+    loopBeat();
   }
 
   function ensureAudio() {
@@ -271,7 +293,7 @@ markup = r"""
     let m = 1;
     if (effects.slow > 0) m *= 0.55;
     if (effects.fever > 0) m *= 1.25;
-    if (effects.rainbow > 0) m *= 0.05; // ほぼ停止
+    if (effects.rainbow > 0) m *= 0.05;
     return m;
   }
 
@@ -318,7 +340,6 @@ markup = r"""
     }
     if (kind === "fever") {
       if (chainStage === 1) {
-        // コンボ達成 → レインボー
         chainStage = 0;
         applyEffect("rainbow");
       } else {
@@ -340,21 +361,21 @@ markup = r"""
     const types = ["right", "left", "specials", "no_miss"];
     const t = types[Math.floor(Math.random() * types.length)];
     const now = performance.now();
-    missionTimer = now + 30000; // 30s
-    if (t === "right") mission = { type: t, target: 3, progress: 0, text: "右側で3個キャッチ (30s)" };
-    if (t === "left") mission = { type: t, target: 3, progress: 0, text: "左側で3個キャッチ (30s)" };
-    if (t === "specials") mission = { type: t, target: 2, progress: 0, text: "特殊宝石を2個キャッチ (30s)" };
-    if (t === "no_miss") mission = { type: t, target: 15, progress: 0, text: "15秒ミスなし (30s)" };
+    missionTimer = now + 30000;
+    if (t === "right") mission = { type: t, target: 3, progress: 0, text: "Catch 3 on right (30s)" };
+    if (t === "left") mission = { type: t, target: 3, progress: 0, text: "Catch 3 on left (30s)" };
+    if (t === "specials") mission = { type: t, target: 2, progress: 0, text: "Catch 2 special gems (30s)" };
+    if (t === "no_miss") mission = { type: t, target: 15, progress: 0, text: "15s no miss (30s)" };
   }
 
   function completeMission() {
     fragments += 1;
-    effects.shield = 5.0; // 一時シールド
+    effects.shield = 5.0;
     maybeAdvanceTheme();
     initMission();
   }
 
-  function updateMission(onCatch, drop, dt) {
+  function updateMission(onCatch, drop) {
     const now = performance.now();
     if (!mission) return;
     if (mission.type === "right" && onCatch && drop.x > cvs.width / 2) mission.progress++;
@@ -389,7 +410,7 @@ markup = r"""
 
     windTimer -= dt;
     if (windTimer <= 0) {
-      wind = (Math.random() - 0.5) * 60; // px/sec drift
+      wind = (Math.random() - 0.5) * 60;
       windTimer = 6 + Math.random() * 6;
     }
     floorPhase += dt;
@@ -404,7 +425,6 @@ markup = r"""
 
     const timeScale = speedMultiplier();
     drops.forEach(d => {
-      // reflector gives horizontal velocity
       if (effects.reflector > 0 && d.vx === 0) d.vx = (Math.random() - 0.5) * 50;
       if (effects.reflector > 0) {
         d.x += d.vx * dt;
@@ -435,16 +455,12 @@ markup = r"""
           }
         }
         spawnSparks(player.x + player.w / 2, player.y);
-        updateMission(true, d, dt);
+        updateMission(true, d);
         continue;
       }
       if (d.y > cvs.height + 10) {
         drops.splice(i, 1);
-        if (effects.shield <= 0) {
-          lives -= 1;
-          lastMissTime = performance.now();
-          if (lives <= 0) running = false;
-        }
+        // No penalty for off-screen drops (requested behavior)
       }
     }
 
@@ -457,7 +473,7 @@ markup = r"""
       if (p.life <= 0) sparks.splice(i, 1);
     }
 
-    updateMission(false, null, dt);
+    updateMission(false, null);
     updateHUD();
   }
 
@@ -499,7 +515,8 @@ markup = r"""
       const gem = ctx.createLinearGradient(0, 0, d.w, d.h);
       if (isSpecial) {
         gem.addColorStop(0, "#e879f9");
-        gem.addColorStop(1, d.kind === "slow" ? "#38bdf8" : d.kind === "fever" ? "#f59e0b" : "#a3e635");
+        const tail = d.kind === "slow" ? "#38bdf8" : d.kind === "fever" ? "#f59e0b" : "#a3e635";
+        gem.addColorStop(1, tail);
       } else {
         gem.addColorStop(0, themeColors.gemTop);
         gem.addColorStop(1, themeColors.gemBottom);
@@ -522,8 +539,7 @@ markup = r"""
   }
 
   function drawGhost(elapsed) {
-    if (!ghostData) return;
-    if (!ghostData.samples || ghostData.samples.length === 0) return;
+    if (!ghostData || !ghostData.samples || ghostData.samples.length === 0) return;
     const samples = ghostData.samples;
     let gx = samples[samples.length - 1].x;
     for (let i = 0; i < samples.length; i++) {
@@ -564,7 +580,6 @@ markup = r"""
     const dt = Math.min((ts - last) / 1000, 0.05);
     if (running) {
       step(dt);
-      // ghost record every 0.1s
       if (ghostSample.length === 0 || ts - ghostSample[ghostSample.length - 1].raw > 100) {
         ghostSample.push({ t: (ts - startedAt) / 1000, x: player.x, raw: ts });
       }
@@ -598,7 +613,6 @@ markup = r"""
     updateVel();
   });
 
-  // theme selection
   themeSelect.addEventListener("change", e => {
     const idx = Number(e.target.value);
     if (unlocked.has(idx)) {
@@ -609,7 +623,6 @@ markup = r"""
     }
   });
 
-  // mobile touch buttons
   const leftBtn = document.createElement("button");
   const rightBtn = document.createElement("button");
   leftBtn.textContent = "Left";
