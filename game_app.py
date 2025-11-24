@@ -43,7 +43,7 @@ markup = r"""
   .btn:active { transform: translateY(1px); }
   .soft { color: #9ca3af; font-size: 13px; text-align: center; }
   select { padding: 4px 8px; border-radius: 8px; border: 1px solid #233044; background: #0f172a; color: #e5e7eb; }
-  .joy-wrap { width: 110px; height: 110px; border-radius: 50%; border: 2px solid #233044; background: rgba(31,41,55,0.5); position: relative; touch-action: none; }
+  .joy-wrap { width: 110px; height: 110px; border-radius: 50%; border: 2px solid #e5e7eb; background: rgba(31,41,55,0.6); position: relative; touch-action: none; }
   .joy-knob { width: 42px; height: 42px; border-radius: 50%; background: linear-gradient(180deg, #22d3ee, #0ea5e9); position: absolute; left: 34px; top: 34px; box-shadow: 0 4px 10px rgba(0,0,0,0.35); }
   @media (max-width: 600px) {
     .hud { gap: 6px; }
@@ -655,6 +655,8 @@ markup = r"""
   mobileBar.style.display = "flex";
   mobileBar.style.gap = "10px";
   mobileBar.style.marginTop = "6px";
+  mobileBar.style.flexWrap = "wrap";
+  mobileBar.style.justifyContent = "center";
   mobileBar.appendChild(leftBtn);
   mobileBar.appendChild(rightBtn);
   document.getElementById("wrap").appendChild(mobileBar);
@@ -691,7 +693,20 @@ markup = r"""
   const joyKnob = document.createElement("div");
   joyKnob.className = "joy-knob";
   joyWrap.appendChild(joyKnob);
-  mobileBar.appendChild(joyWrap);
+  const joyLabel = document.createElement("div");
+  joyLabel.textContent = "Joystick";
+  joyLabel.style.color = "#e5e7eb";
+  joyLabel.style.fontSize = "12px";
+  joyLabel.style.textAlign = "center";
+  joyLabel.style.width = "110px";
+  joyLabel.style.marginBottom = "4px";
+  const joyColumn = document.createElement("div");
+  joyColumn.style.display = "flex";
+  joyColumn.style.flexDirection = "column";
+  joyColumn.style.alignItems = "center";
+  joyColumn.appendChild(joyLabel);
+  joyColumn.appendChild(joyWrap);
+  mobileBar.appendChild(joyColumn);
   let joyActive = false;
   let joyCenter = { x: 0, y: 0 };
   function setJoyPos(dx, dy) {
