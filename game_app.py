@@ -123,6 +123,7 @@ markup = r"""
   let bgmInterval = null;
   let wind = 0;
   let windTimer = 0;
+  const windLockout = 15.0; // first 15s no wind
   let floorPhase = 0;
 
   let mission = null;
@@ -409,9 +410,15 @@ markup = r"""
     player.x = Math.max(6, Math.min(cvs.width - player.w - 6, player.x));
 
     windTimer -= dt;
-    if (windTimer <= 0) {
-      wind = (Math.random() - 0.5) * 60;
-      windTimer = 6 + Math.random() * 6;
+    const aliveTime = (performance.now() - startedAt) / 1000;
+    if (aliveTime >= windLockout) {
+      if (windTimer <= 0) {
+        wind = (Math.random() - 0.5) * 60;
+        windTimer = 6 + Math.random() * 6;
+      }
+    } else {
+      wind = 0;
+      windTimer = 1; // keep simple countdown until unlock
     }
     floorPhase += dt;
 
