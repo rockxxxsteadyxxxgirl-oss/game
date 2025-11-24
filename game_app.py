@@ -1,7 +1,7 @@
 """
 Game & Watch style catch game.
-- 初期難易度を大幅に緩めに設定
-- 時間経過でじわじわと難易度が上がる
+- 初期難易度をさらに緩く (落下速度/出現間隔)
+- 時間経過でじわじわ難易度アップ
 - Web Audio API で簡易チップチューンBGMを自動生成
 操作: 左右キー / A・D、Enter または Restart で再開。タッチボタンあり。
 """
@@ -15,7 +15,7 @@ st.set_page_config(page_title="Game & Watch Catch", page_icon="GW", layout="cent
 st.title("Game & Watch style - Easy start")
 st.caption("最初はかなりゆっくり。時間とスコアで少しずつ速くなります。")
 
-markup = """
+markup = r"""
 <style>
   :root {
     --bg: #0f172a;
@@ -48,6 +48,9 @@ markup = """
   const scoreEl = document.getElementById("score");
   const livesEl = document.getElementById("lives");
   const restartBtn = document.getElementById("restart");
+
+  const varLcd1 = "#eefbe4";
+  const varLcd2 = "#cfe6bc";
 
   let player, drops, sparks, score, lives, running, speedBase, spawnBase, spawnTimer, last, startedAt;
   let audioCtx = null;
@@ -93,7 +96,7 @@ markup = """
     score = 0;
     lives = 3;
     speedBase = 28;   // 非常にゆっくりスタート
-    spawnBase = 1.6;  // 出現間隔もかなり広く
+    spawnBase = 3.2;  // 要望: 出現間隔をさらに広く
     spawnTimer = 0.2;
     running = true;
     startedAt = performance.now();
@@ -185,9 +188,6 @@ markup = """
     ctx.fillStyle = "#a6c48a";
     ctx.fillRect(0, cvs.height - 38, cvs.width, 38);
   }
-
-  const varLcd1 = "#eefbe4";
-  const varLcd2 = "#cfe6bc";
 
   function drawPlayer() {
     ctx.save();
