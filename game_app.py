@@ -1,6 +1,7 @@
 """
-Game & Watch style catch game with a cleaner look.
-Controls: Left/Right or A/D. Catch falling gems, lose a life when missed.
+Game & Watch style catch game with cleaner graphics, time-based difficulty ramp,
+and auto-generated chiptune BGM (Web Audio API).
+Controls: Left/Right or A/D. Catch falling gems; miss 3 times to end.
 """
 
 import streamlit as st
@@ -10,7 +11,7 @@ from streamlit.components.v1 import html
 st.set_page_config(page_title="Game & Watch Catch", page_icon="GW", layout="centered")
 
 st.title("Game & Watch style - Clean look")
-st.caption("Left/Right or A/D to move. Catch falling gems. Miss three times and it's game over.")
+st.caption("Left/Right or A/D to move. Catch falling gems. Miss三回でゲームオーバー。")
 
 markup = """
 <style>
@@ -20,7 +21,6 @@ markup = """
     --lcd: #e8f5d4;
     --ink: #0b3a3e;
     --accent: #18a0fb;
-    --shadow: rgba(0,0,0,0.32);
   }
   body { margin: 0; background: var(--bg); color: #e2e8f0; font-family: "Segoe UI", sans-serif; }
   #wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 10px; }
@@ -38,7 +38,7 @@ markup = """
     <button class="btn" id="restart">Restart</button>
   </div>
   <canvas id="lcd" width="360" height="440"></canvas>
-  <div class="soft">Left/Right or A/D to move. Touch buttons below on mobile. Speed rises slowly.</div>
+  <div class="soft">初期はゆっくり、時間経過で徐々に速く・間隔短く。Touchボタン対応。</div>
 </div>
 <script>
 (() => {
@@ -48,7 +48,42 @@ markup = """
   const livesEl = document.getElementById("lives");
   const restartBtn = document.getElementById("restart");
 
-  let player, drops, sparks, score, lives, running, speed, spawnTimer, last;
+  let player, drops, sparks, score, lives, running, speedBase, spawnBase, spawnTimer, last, startedAt;
+  let audioCtx = null;
+  let bgmInterval = null;
+
+  function startBGM() {
+    if (audioCtx) {
+      if (audioCtx.state === "suspended") audioCtx.resume();
+      return;
+    }
+    audioCtx = new AudioContext();
+    const master = audioCtx.createGain();
+    master.gain.value = 0.08;
+    master.connect(audioCtx.destination);
+    let step = 0;
+    bgmInterval = setInterval(() => {
+      const osc = audioCtx.createOscillator();
+      const env = audioCtx.createGain();
+      const notes = [196, 220, 247, 262, 294, 330, 349];
+      osc.type = "square";
+      osc.frequency.value = notes[step % notes.length];
+      env.gain.value = 0;
+      osc.connect(env);
+      env.connect(master);
+      const now = audioCtx.currentTime;
+      env.gain.setValueAtTime(0, now);
+      env.gain.linearRampToValueAtTime(0.35, now + 0.02);
+      env.gain.exponentialRampToValueAtTime(0.001, now + 0.48);
+      osc.start(now);
+      osc.stop(now + 0.5);
+      step++;
+    }, 520);
+  }
+
+  function ensureAudio() {
+    startBGM();
+  }
 
   function reset() {
     player = { x: cvs.width / 2 - 18, y: cvs.height - 54, w: 36, h: 16, vx: 0 };
@@ -56,9 +91,11 @@ markup = """
     sparks = [];
     score = 0;
     lives = 3;
-    speed = 50;
-    spawnTimer = 0;
+    speedBase = 45; // slow start
+    spawnBase = 1.1; // slow spawn at start
+    spawnTimer = 0.2;
     running = true;
+    startedAt = performance.now();
     last = performance.now();
     updateHUD();
   }
@@ -68,9 +105,14 @@ markup = """
     livesEl.textContent = lives;
   }
 
+  function difficultyFactor() {
+    const elapsed = (performance.now() - startedAt) / 1000; // seconds
+    return 1 + Math.min(elapsed / 80, 1.6); // ramps to ~2.6x over ~80s
+  }
+
   function spawnDrop() {
     const x = 18 + Math.random() * (cvs.width - 36);
-    const vy = speed / 70;
+    const vy = (speedBase * difficultyFactor()) / 70;
     drops.push({ x, y: -12, w: 12, h: 12, vy });
   }
 
@@ -92,7 +134,8 @@ markup = """
     spawnTimer -= dt;
     if (spawnTimer <= 0) {
       spawnDrop();
-      spawnTimer = 0.8 - Math.min(score / 1500, 0.55);
+      const df = difficultyFactor();
+      spawnTimer = Math.max(0.28, spawnBase / df); // faster spawn as time passes
     }
 
     drops.forEach(d => d.y += d.vy * 60 * dt);
@@ -104,7 +147,7 @@ markup = """
       if (hitX && hitY) {
         drops.splice(i, 1);
         score += 10;
-        speed = Math.min(speed + 2.4, 150);
+        speedBase = Math.min(speedBase + 1.8, 160); // increase base speed after catches
         spawnSparks(player.x + player.w / 2, player.y);
         continue;
       }
@@ -222,6 +265,7 @@ markup = """
     if (e.code === "ArrowLeft" || e.code === "KeyA") pressed.add("L");
     if (e.code === "ArrowRight" || e.code === "KeyD") pressed.add("R");
     if (!running && e.code === "Enter") reset();
+    ensureAudio();
     updateVel();
   });
   document.addEventListener("keyup", e => {
@@ -248,12 +292,12 @@ markup = """
   mobileBar.appendChild(rightBtn);
   document.getElementById("wrap").appendChild(mobileBar);
 
-  leftBtn.addEventListener("pointerdown", () => { pressed.add("L"); updateVel(); });
-  rightBtn.addEventListener("pointerdown", () => { pressed.add("R"); updateVel(); });
+  leftBtn.addEventListener("pointerdown", () => { pressed.add("L"); ensureAudio(); updateVel(); });
+  rightBtn.addEventListener("pointerdown", () => { pressed.add("R"); ensureAudio(); updateVel(); });
   leftBtn.addEventListener("pointerup", () => { pressed.delete("L"); updateVel(); });
   rightBtn.addEventListener("pointerup", () => { pressed.delete("R"); updateVel(); });
 
-  restartBtn.addEventListener("click", reset);
+  restartBtn.addEventListener("click", () => { ensureAudio(); reset(); });
 
   reset();
   requestAnimationFrame(loop);
@@ -261,4 +305,4 @@ markup = """
 </script>
 """
 
-html(markup, height=520, scrolling=False)
+html(markup, height=540, scrolling=False)
