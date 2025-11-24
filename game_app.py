@@ -1,7 +1,9 @@
 """
-Game & Watch style catch game with cleaner graphics, time-based difficulty ramp,
-and auto-generated chiptune BGM (Web Audio API).
-Controls: Left/Right or A/D. Catch falling gems; miss 3 times to end.
+Game & Watch style catch game.
+- 初期難易度を大幅に緩めに設定
+- 時間経過でじわじわと難易度が上がる
+- Web Audio API で簡易チップチューンBGMを自動生成
+操作: 左右キー / A・D、Enter または Restart で再開。タッチボタンあり。
 """
 
 import streamlit as st
@@ -10,17 +12,16 @@ from streamlit.components.v1 import html
 
 st.set_page_config(page_title="Game & Watch Catch", page_icon="GW", layout="centered")
 
-st.title("Game & Watch style - Clean look")
-st.caption("Left/Right or A/D to move. Catch falling gems. Miss三回でゲームオーバー。")
+st.title("Game & Watch style - Easy start")
+st.caption("最初はかなりゆっくり。時間とスコアで少しずつ速くなります。")
 
 markup = """
 <style>
   :root {
     --bg: #0f172a;
     --frame: #0a1a30;
-    --lcd: #e8f5d4;
-    --ink: #0b3a3e;
-    --accent: #18a0fb;
+    --lcd1: #eefbe4;
+    --lcd2: #cfe6bc;
   }
   body { margin: 0; background: var(--bg); color: #e2e8f0; font-family: "Segoe UI", sans-serif; }
   #wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 10px; }
@@ -38,7 +39,7 @@ markup = """
     <button class="btn" id="restart">Restart</button>
   </div>
   <canvas id="lcd" width="360" height="440"></canvas>
-  <div class="soft">初期はゆっくり、時間経過で徐々に速く・間隔短く。Touchボタン対応。</div>
+  <div class="soft">左/右 または A/D で移動。最初はかなりゆっくり落下、経過時間で少しずつ加速。</div>
 </div>
 <script>
 (() => {
@@ -59,7 +60,7 @@ markup = """
     }
     audioCtx = new AudioContext();
     const master = audioCtx.createGain();
-    master.gain.value = 0.08;
+    master.gain.value = 0.06;
     master.connect(audioCtx.destination);
     let step = 0;
     bgmInterval = setInterval(() => {
@@ -74,11 +75,11 @@ markup = """
       const now = audioCtx.currentTime;
       env.gain.setValueAtTime(0, now);
       env.gain.linearRampToValueAtTime(0.35, now + 0.02);
-      env.gain.exponentialRampToValueAtTime(0.001, now + 0.48);
+      env.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
       osc.start(now);
-      osc.stop(now + 0.5);
+      osc.stop(now + 0.52);
       step++;
-    }, 520);
+    }, 600);
   }
 
   function ensureAudio() {
@@ -91,8 +92,8 @@ markup = """
     sparks = [];
     score = 0;
     lives = 3;
-    speedBase = 45; // slow start
-    spawnBase = 1.1; // slow spawn at start
+    speedBase = 28;   // 非常にゆっくりスタート
+    spawnBase = 1.6;  // 出現間隔もかなり広く
     spawnTimer = 0.2;
     running = true;
     startedAt = performance.now();
@@ -107,7 +108,7 @@ markup = """
 
   function difficultyFactor() {
     const elapsed = (performance.now() - startedAt) / 1000; // seconds
-    return 1 + Math.min(elapsed / 80, 1.6); // ramps to ~2.6x over ~80s
+    return 1 + Math.min(elapsed / 100, 1.8); // 緩やかに最大2.8倍まで
   }
 
   function spawnDrop() {
@@ -135,7 +136,7 @@ markup = """
     if (spawnTimer <= 0) {
       spawnDrop();
       const df = difficultyFactor();
-      spawnTimer = Math.max(0.28, spawnBase / df); // faster spawn as time passes
+      spawnTimer = Math.max(0.36, spawnBase / df); // 時間でじわじわ短く
     }
 
     drops.forEach(d => d.y += d.vy * 60 * dt);
@@ -147,7 +148,7 @@ markup = """
       if (hitX && hitY) {
         drops.splice(i, 1);
         score += 10;
-        speedBase = Math.min(speedBase + 1.8, 160); // increase base speed after catches
+        speedBase = Math.min(speedBase + 1.2, 150); // キャッチごとの加速も控えめ
         spawnSparks(player.x + player.w / 2, player.y);
         continue;
       }
@@ -172,8 +173,8 @@ markup = """
 
   function drawBackground() {
     const g = ctx.createLinearGradient(0, 0, 0, cvs.height);
-    g.addColorStop(0, "#eefbe4");
-    g.addColorStop(1, "#cfe6bc");
+    g.addColorStop(0, varLcd1);
+    g.addColorStop(1, varLcd2);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, cvs.width, cvs.height);
 
@@ -184,6 +185,9 @@ markup = """
     ctx.fillStyle = "#a6c48a";
     ctx.fillRect(0, cvs.height - 38, cvs.width, 38);
   }
+
+  const varLcd1 = "#eefbe4";
+  const varLcd2 = "#cfe6bc";
 
   function drawPlayer() {
     ctx.save();
@@ -256,8 +260,8 @@ markup = """
 
   const pressed = new Set();
   function updateVel() {
-    if (pressed.has("L") && !pressed.has("R")) player.vx = -130;
-    else if (pressed.has("R") && !pressed.has("L")) player.vx = 130;
+    if (pressed.has("L") && !pressed.has("R")) player.vx = -120;
+    else if (pressed.has("R") && !pressed.has("L")) player.vx = 120;
     else player.vx = 0;
   }
 
