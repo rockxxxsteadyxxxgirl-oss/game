@@ -43,6 +43,7 @@ markup = r"""
   .btn:active { transform: translateY(1px); }
   .soft { color: #9ca3af; font-size: 13px; text-align: center; }
   select { padding: 4px 8px; border-radius: 8px; border: 1px solid #233044; background: #0f172a; color: #e5e7eb; }
+  .combo-float { position: fixed; top: 56px; right: 12px; z-index: 20; padding: 10px 14px; border-radius: 12px; background: linear-gradient(135deg, rgba(255,95,109,0.85), rgba(255,195,113,0.9)); box-shadow: 0 8px 24px rgba(0,0,0,0.35); color: #0b1222; font-weight: 900; font-size: 18px; letter-spacing: 0.5px; text-shadow: 0 1px 2px rgba(0,0,0,0.3); }
   .joy-wrap { width: 110px; height: 110px; border-radius: 50%; border: 2px solid #e5e7eb; background: rgba(31,41,55,0.6); position: relative; touch-action: none; }
   .joy-knob { width: 42px; height: 42px; border-radius: 50%; background: linear-gradient(180deg, #22d3ee, #0ea5e9); position: absolute; left: 34px; top: 34px; box-shadow: 0 4px 10px rgba(0,0,0,0.35); }
   @media (max-width: 600px) {
@@ -51,6 +52,7 @@ markup = r"""
   }
 </style>
 <div id="wrap">
+  <div class="combo-float">COMBO <span id="comboFloat">0</span></div>
   <div class="hud">
     <div class="pill">Score: <span id="score">0</span></div>
     <div class="pill">Lives: <span id="lives">3</span></div>
@@ -64,7 +66,9 @@ markup = r"""
     <label>Theme Select: <select id="themeSelect"></select></label>
   </div>
   <canvas id="lcd" width="420" height="450"></canvas>
-  <div class="soft">Combo: slow -> fever = rainbow. Missions, wind, magnet, reflector, ghost replay. Enter/Space/Restart to retry. Mobile: swipe field or use joystick.</div>
+</div>
+<div class="soft" style="margin-top:2px; margin-bottom:6px;">
+  コンボ: slow → fever で rainbow 発動。ミッション・風・磁力・反射・ゴーストリプレイ対応。Enter / Space / Restart で再開。モバイルはスワイプまたはジョイスティックで操作。
 </div>
 <script>
 (() => {
@@ -76,6 +80,7 @@ markup = r"""
   const themeEl = document.getElementById("themeName");
   const fragEl = document.getElementById("fragments");
   const missionEl = document.getElementById("missionText");
+  const comboFloatEl = document.getElementById("comboFloat");
   const restartBtn = document.getElementById("restart");
   const themeSelect = document.getElementById("themeSelect");
 
@@ -121,6 +126,7 @@ markup = r"""
   let themeColors = themes[selectedTheme];
   const fragmentGoal = 3;
   let fragments = 0;
+  let comboCount = 0;
 
   let player, drops, sparks, score, lives, running, speedBase, spawnBase, spawnTimer, last, startedAt;
   let effects = { slow: 0, fever: 0, rainbow: 0, magnet: 0, reflector: 0, shield: 0 };
@@ -268,6 +274,7 @@ markup = r"""
     effects = { slow: 0, fever: 0, rainbow: 0, magnet: 0, reflector: 0, shield: 0 };
     chainStage = 0;
     fragments = 0;
+    comboCount = 0;
     themeIndex = selectedTheme;
     applyTheme(themes[themeIndex]);
     wind = 0;
@@ -289,6 +296,7 @@ markup = r"""
     effectEl.textContent = active.length ? active.join(",") : "None";
     fragEl.textContent = `${fragments}/${fragmentGoal}`;
     missionEl.textContent = mission ? mission.text : "---";
+    comboFloatEl.textContent = comboCount;
   }
 
   function difficultyFactor() {
@@ -459,6 +467,7 @@ markup = r"""
         drops.splice(i, 1);
         const gain = 10 * scoreMultiplier();
         score += gain;
+        comboCount += 1;
         speedBase = Math.min(speedBase + 1.2, 150);
         if (d.kind !== "normal") {
           handleCombo(d.kind);
@@ -477,6 +486,7 @@ markup = r"""
         if (insideX && effects.shield <= 0) {
           lives -= 1;
           lastMissTime = performance.now();
+          comboCount = 0; // reset combo on missed catch inside view
           if (lives <= 0) running = false;
         }
         // screen-out misses (outside X range) are ignored
