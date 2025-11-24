@@ -4,7 +4,7 @@ from streamlit.components.v1 import html
 
 st.set_page_config(page_title="Side Scroller - 障害物を避けるゲーム", page_icon="🏃", layout="centered")
 
-st.title("横スクロール障害物ゲーム (Python + Streamlit)")
+st.title("横スクロール障害物ゲーム (やさしめ設定)")
 st.caption("スペース / ↑ でジャンプ。障害物を避け続けてスコアを伸ばそう。Enter でリスタート。")
 
 game_html = """
@@ -23,7 +23,7 @@ game_html = """
     <button class="btn" id="restart">Restart</button>
   </div>
   <canvas id="game" width="820" height="420"></canvas>
-  <div style="font-size:13px; color:#9ca3af;">Space/ArrowUp: Jump ・ Enter/Restart: 再開 ・ 徐々に速くなるのでタイミング勝負</div>
+  <div style="font-size:13px; color:#9ca3af;">Space/ArrowUp: Jump ・ Enter/Restart: 再開 ・ 少しゆっくりで間隔広め</div>
 </div>
 <script>
 (() => {
@@ -42,7 +42,7 @@ game_html = """
     last = performance.now();
     spawnTimer = 0;
     score = 0;
-    speedBase = 4;
+    speedBase = 3; // 全体の進む速度を少し遅く
     renderHUD();
   }
 
@@ -65,10 +65,10 @@ game_html = """
   }
 
   function spawnObstacle() {
-    const h = 20 + Math.random() * 50;
-    const w = 20 + Math.random() * 40;
-    const gap = 120 + Math.random() * 120;
-    const speed = speedBase + Math.min(score / 300, 6);
+    const h = 18 + Math.random() * 40;  // 低めの障害
+    const w = 18 + Math.random() * 32;  // 細めの幅
+    const gap = 150 + Math.random() * 150; // 出現間隔を広めに
+    const speed = speedBase + Math.min(score / 450, 4); // 加速を緩やかに
     obstacles.push({ x: canvas.width + 10, y: groundY + (30 - h), w, h, speed, gap });
   }
 
@@ -85,7 +85,7 @@ game_html = """
     spawnTimer -= dt;
     if (spawnTimer <= 0) {
       spawnObstacle();
-      spawnTimer = 1.1 - Math.min(score / 500, 0.7);
+      spawnTimer = 1.35 - Math.min(score / 800, 0.75); // 出現頻度を控えめに
     }
     obstacles.forEach(o => { o.x -= o.speed * 60 * dt; });
     obstacles = obstacles.filter(o => o.x + o.w > -20);
