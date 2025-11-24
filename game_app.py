@@ -1,231 +1,179 @@
 """
-Procedural mini RPG for the browser (Streamlit).
-Story beats are auto-generated and each scene is resolved with one button.
+Simple Game & Watch-style LCD game in the browser (Streamlit + vanilla JS).
+Move left/right to catch falling blocks. Lose 1 life if you miss.
 """
 
-import random
-import time
-from typing import Dict, List
-
 import streamlit as st
+from streamlit.components.v1 import html
 
 
-st.set_page_config(page_title="Procedural RPG", page_icon="🗺️", layout="wide")
+st.set_page_config(page_title="Game & Watch風ミニゲーム", page_icon="🕹️", layout="centered")
 
-Scene = Dict[str, str]
+st.title("Game & Watch 風キャッチゲーム")
+st.caption("←/→ または A/D で移動。落ちてくるブロックをキャッチしてスコアを伸ばそう。")
 
+game_markup = """
+<style>
+  body { margin: 0; background: #0f172a; color: #e2e8f0; font-family: "Segoe UI", sans-serif; }
+  #wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 8px; }
+  canvas { background: #d7f8c6; border: 4px solid #0f172a; border-radius: 12px; image-rendering: pixelated; }
+  .hud { display: flex; gap: 12px; font-weight: 600; }
+  .btn { background: #0ea5e9; color: #0b1b2b; border: none; border-radius: 8px; padding: 6px 12px; cursor: pointer; font-weight: 700; }
+  .btn:active { transform: translateY(1px); }
+  .soft { color: #94a3b8; font-size: 13px; }
+</style>
+<div id="wrap">
+  <div class="hud">
+    <div>Score: <span id="score">0</span></div>
+    <div>Lives: <span id="lives">3</span></div>
+    <button class="btn" id="restart">Restart</button>
+  </div>
+  <canvas id="lcd" width="320" height="240"></canvas>
+  <div class="soft">←/→ or A/D to move ・ 落下はだんだん速くなる</div>
+</div>
+<script>
+(() => {
+  const cvs = document.getElementById("lcd");
+  const ctx = cvs.getContext("2d");
+  const scoreEl = document.getElementById("score");
+  const livesEl = document.getElementById("lives");
+  const restartBtn = document.getElementById("restart");
 
-def new_seed() -> int:
-    return int(time.time())
+  let player, drops, score, lives, running, speed, last;
 
+  function reset() {
+    player = { x: cvs.width / 2 - 16, y: cvs.height - 28, w: 32, h: 14, vx: 0 };
+    drops = [];
+    score = 0;
+    lives = 3;
+    speed = 55;
+    running = true;
+    last = performance.now();
+    updateHUD();
+  }
 
-def ensure_state() -> None:
-    if "seed" not in st.session_state:
-        st.session_state.seed = new_seed()
-    if "world" not in st.session_state:
-        st.session_state.world = {}
-    if "scenes" not in st.session_state:
-        st.session_state.scenes: List[Scene] = []
-    if "scene_idx" not in st.session_state:
-        st.session_state.scene_idx = 0
-    if "hp" not in st.session_state:
-        st.session_state.hp = 30
-    if "log" not in st.session_state:
-        st.session_state.log: List[str] = []
-    if "outcome" not in st.session_state:
-        st.session_state.outcome = "ongoing"  # ongoing | won | lost
+  function updateHUD() {
+    scoreEl.textContent = score;
+    livesEl.textContent = lives;
+  }
 
+  function spawnDrop() {
+    const x = 12 + Math.random() * (cvs.width - 24);
+    drops.push({ x, y: -10, w: 10, h: 10, vy: speed / 60 });
+  }
 
-def generate_world(seed: int) -> Dict[str, str]:
-    rng = random.Random(seed)
-    hero = rng.choice(
-        ["Lina the Cartographer", "Aki of the North Wind", "Silas the Lantern Bearer", "Mira the Scout", "Rho the Tinkerer"]
-    )
-    origin = rng.choice(["Ashenridge", "Valemoor", "Port Tallow", "Stonebrook", "Hollowmere"])
-    relic = rng.choice(["Skyforge Compass", "Echo Shard", "Sunken Crown", "Glimmer Codex", "Ironbloom Seed"])
-    villain = rng.choice(["The Pale Warden", "Oracle of Rust", "Queen of Thorns", "The Gilded Shade", "Lord of Cinders"])
-    region = rng.choice(["The Indigo Steppe", "Mistwild Forest", "Glass Dunes", "Thorn Coast", "Cradle Peaks"])
-    twist = rng.choice(
-        [
-            "the relic is incomplete",
-            "the villain is bound to an oath",
-            "the land itself remembers",
-            "old maps hide safer passes",
-            "the companion knows a secret route",
-        ]
-    )
-    companion = rng.choice(["Kira the alchemist", "Tomas the archer", "Vela the medic", "Jun the bard", "Nox the stray wolf"])
-    title = f"{hero} and the {relic}"
-    summary = f"{hero} leaves {origin} to stop {villain} before the {region} falls. Rumor says {twist}."
-    return {
-        "hero": hero,
-        "origin": origin,
-        "relic": relic,
-        "villain": villain,
-        "region": region,
-        "twist": twist,
-        "companion": companion,
-        "title": title,
-        "summary": summary,
+  function loop(ts) {
+    const dt = Math.min((ts - last) / 1000, 0.05);
+    if (running) step(dt);
+    draw();
+    last = ts;
+    requestAnimationFrame(loop);
+  }
+
+  function step(dt) {
+    // movement
+    player.x += player.vx * dt;
+    player.x = Math.max(4, Math.min(cvs.width - player.w - 4, player.x));
+    // spawn
+    if (Math.random() < 0.9 * dt) spawnDrop();
+    // move drops
+    drops.forEach(d => d.y += d.vy * 60 * dt);
+    // collisions
+    for (let i = drops.length - 1; i >= 0; i--) {
+      const d = drops[i];
+      if (d.y + d.h >= player.y && d.y <= player.y + player.h && d.x + d.w >= player.x && d.x <= player.x + player.w) {
+        drops.splice(i, 1);
+        score += 10;
+        speed = Math.min(speed + 1.8, 140); // slowly increase difficulty
+        continue;
+      }
+      if (d.y > cvs.height + 4) {
+        drops.splice(i, 1);
+        lives -= 1;
+        if (lives <= 0) running = false;
+      }
     }
+    updateHUD();
+  }
 
+  function drawLCDRect(x, y, w, h, color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+  }
 
-def build_scenes(world: Dict[str, str], seed: int) -> List[Scene]:
-    rng = random.Random(seed + 37)
-    hero = world["hero"]
-    villain = world["villain"]
-    relic = world["relic"]
-    region = world["region"]
-    companion = world["companion"]
-    scenes: List[Scene] = []
+  function draw() {
+    ctx.clearRect(0, 0, cvs.width, cvs.height);
+    // backdrop frame lines
+    ctx.strokeStyle = "#9dc59a";
+    ctx.lineWidth = 1;
+    for (let i = 0; i < cvs.height; i += 20) {
+      ctx.beginPath();
+      ctx.moveTo(0, i + 0.5);
+      ctx.lineTo(cvs.width, i + 0.5);
+      ctx.stroke();
+    }
+    // player
+    drawLCDRect(player.x, player.y, player.w, player.h, running ? "#0b4f1f" : "#7f1d1d");
+    // drops
+    drops.forEach(d => drawLCDRect(d.x, d.y, d.w, d.h, "#123c5a"));
+    if (!running) {
+      ctx.fillStyle = "rgba(0,0,0,0.45)";
+      ctx.fillRect(0, 0, cvs.width, cvs.height);
+      ctx.fillStyle = "#e11d48";
+      ctx.font = "bold 22px 'Segoe UI'";
+      ctx.textAlign = "center";
+      ctx.fillText("GAME OVER - Restartで再開", cvs.width / 2, cvs.height / 2);
+    }
+  }
 
-    scenes.append({"type": "lore", "text": f"{hero} and {companion} step into {region}, chasing whispers of the {relic}."})
-    scenes.append(
-        {"type": "choice", "text": "You reach a fork: a sunlit canyon or a shaded pass. One is faster, one is safer."}
-    )
-    scenes.append(
-        {"type": "battle", "text": "Bandits hired by the villain block the trail with rusted blades and a hungry look."}
-    )
-    scenes.append({"type": "lore", "text": f"At an abandoned watchtower you learn that {villain} hunts the {relic} too."})
-    scenes.append(
-        {"type": "choice", "text": "A storm rolls in. Do you press forward through rain or make camp in the ruins?"}
-    )
-    scenes.append(
-        {"type": "battle", "text": "A roaming beast, warped by old magic, prowls the path and lunges from the fog."}
-    )
-    scenes.append(
-        {"type": "lore", "text": f"The map glows faintly; the land confirms that {world['twist']}."}
-    )
-    scenes.append({"type": "boss", "text": f"{villain} appears at the heart of {region}, grasping for the {relic}."})
+  // input
+  const pressed = new Set();
+  document.addEventListener("keydown", e => {
+    if (e.code === "ArrowLeft" || e.code === "KeyA") pressed.add("L");
+    if (e.code === "ArrowRight" || e.code === "KeyD") pressed.add("R");
+    if (!running && e.code === "Enter") reset();
+    updateVel();
+  });
+  document.addEventListener("keyup", e => {
+    if (e.code === "ArrowLeft" || e.code === "KeyA") pressed.delete("L");
+    if (e.code === "ArrowRight" || e.code === "KeyD") pressed.delete("R");
+    updateVel();
+  });
 
-    rng.shuffle(scenes[:-1])  # shuffle everything except the final boss to vary the path
-    scenes.append(scenes.pop())  # ensure boss stays last
-    return scenes
+  function updateVel() {
+    if (pressed.has("L") && !pressed.has("R")) player.vx = -120;
+    else if (pressed.has("R") && !pressed.has("L")) player.vx = 120;
+    else player.vx = 0;
+  }
 
+  // touch/mouse buttons for mobile
+  const btnLeft = document.createElement("button");
+  const btnRight = document.createElement("button");
+  btnLeft.textContent = "←";
+  btnRight.textContent = "→";
+  [btnLeft, btnRight].forEach(btn => {
+    btn.className = "btn";
+    btn.style.width = "64px";
+    btn.style.margin = "4px";
+  });
+  const mobileBar = document.createElement("div");
+  mobileBar.style.display = "flex";
+  mobileBar.style.gap = "8px";
+  mobileBar.appendChild(btnLeft);
+  mobileBar.appendChild(btnRight);
+  document.getElementById("wrap").appendChild(mobileBar);
 
-def start_new_game() -> None:
-    st.session_state.seed = new_seed()
-    st.session_state.world = generate_world(st.session_state.seed)
-    st.session_state.scenes = build_scenes(st.session_state.world, st.session_state.seed)
-    st.session_state.scene_idx = 0
-    st.session_state.hp = 30
-    st.session_state.log = []
-    st.session_state.outcome = "ongoing"
+  btnLeft.addEventListener("pointerdown", () => { pressed.add("L"); updateVel(); });
+  btnRight.addEventListener("pointerdown", () => { pressed.add("R"); updateVel(); });
+  btnLeft.addEventListener("pointerup", () => { pressed.delete("L"); updateVel(); });
+  btnRight.addEventListener("pointerup", () => { pressed.delete("R"); updateVel(); });
 
+  restartBtn.addEventListener("click", reset);
 
-def resolve_battle(text: str, boss: bool = False) -> None:
-    rng = random.Random(st.session_state.seed + st.session_state.scene_idx)
-    enemy_hp = 12 + rng.randint(0, 6) + (6 if boss else 0)
-    hero_hp = st.session_state.hp
-    rounds = 0
-    lines: List[str] = [text]
-    while hero_hp > 0 and enemy_hp > 0 and rounds < 6:
-        dmg_to_enemy = rng.randint(3, 7)
-        dmg_to_hero = rng.randint(0, 4) + (2 if boss else 0)
-        enemy_hp -= dmg_to_enemy
-        if enemy_hp <= 0:
-            lines.append(f"You strike for {dmg_to_enemy} and drop the foe.")
-            break
-        hero_hp -= dmg_to_hero
-        lines.append(f"You deal {dmg_to_enemy}, take {dmg_to_hero}.")
-        rounds += 1
-    st.session_state.hp = max(hero_hp, 0)
-    if hero_hp <= 0:
-        st.session_state.outcome = "lost"
-        lines.append("You collapse. The journey ends here.")
-    elif boss:
-        st.session_state.outcome = "won"
-        lines.append("The villain falls. The relic is safe.")
-    else:
-        lines.append("You survive and move on.")
-    st.session_state.log.extend(lines)
+  reset();
+  requestAnimationFrame(loop);
+})();
+</script>
+"""
 
-
-def resolve_choice(text: str) -> None:
-    rng = random.Random(st.session_state.seed + st.session_state.scene_idx * 3)
-    success = rng.random() > 0.3
-    if success:
-        heal = rng.randint(2, 5)
-        st.session_state.hp = min(st.session_state.hp + heal, 32)
-        st.session_state.log.extend([text, f"You pick well. You recover +{heal} hp on the way."])
-    else:
-        hurt = rng.randint(3, 6)
-        st.session_state.hp = max(st.session_state.hp - hurt, 0)
-        st.session_state.log.extend([text, f"A bad turn costs you {hurt} hp."])
-        if st.session_state.hp <= 0:
-            st.session_state.outcome = "lost"
-            st.session_state.log.append("You cannot continue.")
-
-
-def resolve_lore(text: str) -> None:
-    st.session_state.log.append(text)
-
-
-def play_scene() -> None:
-    if st.session_state.outcome != "ongoing":
-        return
-    if st.session_state.scene_idx >= len(st.session_state.scenes):
-        st.session_state.outcome = "won"
-        return
-    scene = st.session_state.scenes[st.session_state.scene_idx]
-    st.session_state.scene_idx += 1
-    if scene["type"] == "battle":
-        resolve_battle(scene["text"])
-    elif scene["type"] == "boss":
-        resolve_battle(scene["text"], boss=True)
-    elif scene["type"] == "choice":
-        resolve_choice(scene["text"])
-    else:
-        resolve_lore(scene["text"])
-
-
-def sidebar_controls() -> None:
-    st.sidebar.header("RPG Controls")
-    st.sidebar.button("Start new story", type="primary", on_click=start_new_game)
-    st.sidebar.write("Each click on 'Resolve next scene' advances the story and auto-resolves events.")
-    st.sidebar.write("HP drops to 0 -> defeat. Reach the boss and win the fight -> victory.")
-
-
-def render_status() -> None:
-    world = st.session_state.world
-    st.subheader(world.get("title", "Adventure"))
-    st.caption(world.get("summary", ""))
-    cols = st.columns(3)
-    cols[0].metric("Hero", world.get("hero", "-"))
-    cols[1].metric("Companion", world.get("companion", "-"))
-    cols[2].metric("HP", st.session_state.hp)
-    if st.session_state.outcome == "won":
-        st.success("You saved the region. The relic is yours.")
-    elif st.session_state.outcome == "lost":
-        st.error("Defeated. Restart for a new story.")
-    else:
-        st.info("On the road...")
-
-
-def render_log() -> None:
-    st.markdown("### Story log")
-    for line in st.session_state.log[-30:]:
-        st.write(f"- {line}")
-
-
-def render_actions() -> None:
-    if st.session_state.outcome == "ongoing":
-        st.button("Resolve next scene", type="primary", on_click=play_scene)
-        remaining = len(st.session_state.scenes) - st.session_state.scene_idx
-        st.caption(f"{remaining} scenes remain.")
-    else:
-        st.button("Restart adventure", type="secondary", on_click=start_new_game)
-
-
-def main() -> None:
-    ensure_state()
-    if not st.session_state.world:
-        start_new_game()
-    sidebar_controls()
-    render_status()
-    render_actions()
-    render_log()
-
-
-if __name__ == "__main__":
-    main()
+html(game_markup, height=420, scrolling=False)
