@@ -460,7 +460,13 @@ markup = r"""
       }
       if (d.y > cvs.height + 10) {
         drops.splice(i, 1);
-        // No penalty for off-screen drops (requested behavior)
+        const insideX = d.x + d.w > 0 && d.x < cvs.width;
+        if (insideX && effects.shield <= 0) {
+          lives -= 1;
+          lastMissTime = performance.now();
+          if (lives <= 0) running = false;
+        }
+        // screen-out misses (outside X range) are ignored
       }
     }
 
