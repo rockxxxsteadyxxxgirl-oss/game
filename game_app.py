@@ -1,10 +1,14 @@
 """
-Game & Watch style catch game.
-- ゆっくりスタート (spawnBase=3.0) → 時間経過で徐々に難化
-- 特殊宝石でスロー/フィーバー効果
-- 断片を集めるとCSSテーマが進化（3テーマをループ）
-- BGMはスコア帯でレイヤー追加（リード/ベース/ハット）
-操作: 左右キー or A/D, Enter/Space または Restart で再開。タッチボタンあり。
+Game & Watch style catch game (Streamlit + vanilla JS).
+- ゆっくりスタート (spawnBase=3.0)、時間で難化
+- 特殊宝石: スロー/フィーバー/マグネット/リフレクター/レインボー
+- コンボ: スロー→フィーバー連続でレインボー発動（落下停止＆3倍）
+- 時限ミッション: 30秒ごとに小目標、報酬で断片+1やシールド付与
+- 断片3つでテーマ進化（アンロックを保存＆選択可）
+- 風と床ドリフト、磁力吸引、反射落下でプレイフィール変化
+- ゴースト：前プレイの軌跡を再生（自己対戦）
+- BGM: スコア帯でレイヤー追加（リード/ベース/ハット）
+- 操作: 左右キー or A/D, Enter/Space/Restart で再開、タッチボタンあり
 """
 
 import streamlit as st
@@ -14,7 +18,7 @@ from streamlit.components.v1 import html
 st.set_page_config(page_title="Game & Watch Catch", page_icon="GW", layout="centered")
 
 st.title("Game & Watch style - Evolving look")
-st.caption("ゆっくり始まり、時間でじわじわ難化。特殊宝石でスロー/フィーバー、断片3つでテーマ進化。")
+st.caption("ゆっくり始まり、時間でじわじわ難化。特殊宝石コンボでレインボー！ 断片を集めてテーマを解放。")
 
 markup = r"""
 <style>
@@ -32,11 +36,12 @@ markup = r"""
   body { margin: 0; background: var(--bg); color: #e2e8f0; font-family: "Segoe UI", sans-serif; }
   #wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 10px; }
   canvas { border: 6px solid var(--frame); border-radius: 16px; box-shadow: 0 14px 32px rgba(0,0,0,0.4); }
-  .hud { display: flex; gap: 10px; font-weight: 700; align-items: center; flex-wrap: wrap; justify-content: center; }
-  .pill { background: var(--pill-bg); padding: 6px 12px; border-radius: 999px; border: 1px solid var(--pill-border); color: var(--pill-text); }
+  .hud { display: flex; gap: 8px; font-weight: 700; align-items: center; flex-wrap: wrap; justify-content: center; }
+  .pill { background: var(--pill-bg); padding: 6px 10px; border-radius: 999px; border: 1px solid var(--pill-border); color: var(--pill-text); }
   .btn { background: linear-gradient(180deg, var(--btn1), var(--btn2)); color: #0a1525; border: none; border-radius: 10px; padding: 7px 14px; cursor: pointer; font-weight: 800; box-shadow: 0 4px 12px rgba(0,0,0,0.25); }
   .btn:active { transform: translateY(1px); }
-  .soft { color: #9ca3af; font-size: 13px; }
+  .soft { color: #9ca3af; font-size: 13px; text-align: center; }
+  select { padding: 4px 8px; border-radius: 8px; border: 1px solid #233044; background: #0f172a; color: #e5e7eb; }
 </style>
 <div id="wrap">
   <div class="hud">
@@ -45,10 +50,14 @@ markup = r"""
     <div class="pill">Effect: <span id="effect">None</span></div>
     <div class="pill">Theme: <span id="themeName">Classic</span></div>
     <div class="pill">Fragments: <span id="fragments">0/3</span></div>
+    <div class="pill">Mission: <span id="missionText">---</span></div>
     <button class="btn" id="restart">Restart</button>
   </div>
+  <div class="hud">
+    <label>Theme Select: <select id="themeSelect"></select></label>
+  </div>
   <canvas id="lcd" width="360" height="440"></canvas>
-  <div class="soft">特殊宝石でスロー/フィーバー。断片3つでテーマ進化。左右キー/A・D、Enter/Spaceで再スタート。</div>
+  <div class="soft">特殊宝石コンボ: スロー→フィーバーでレインボー発動。Enter/Space/Restartで再スタート。風・磁力・反射・ミッションで毎回違う展開。</div>
 </div>
 <script>
 (() => {
@@ -59,7 +68,9 @@ markup = r"""
   const effectEl = document.getElementById("effect");
   const themeEl = document.getElementById("themeName");
   const fragEl = document.getElementById("fragments");
+  const missionEl = document.getElementById("missionText");
   const restartBtn = document.getElementById("restart");
+  const themeSelect = document.getElementById("themeSelect");
 
   const themes = [
     {
@@ -91,15 +102,48 @@ markup = r"""
     },
   ];
 
-  let themeColors = themes[0];
-  let themeIndex = 0;
-  let fragments = 0;
+  let unlocked = new Set([0]);
+  let selectedTheme = 0;
+  try {
+    const saved = JSON.parse(localStorage.getItem("gwUnlocked") || "[]");
+    saved.forEach(v => unlocked.add(v));
+    const savedSel = Number(localStorage.getItem("gwThemeIdx"));
+    if (!Number.isNaN(savedSel) && unlocked.has(savedSel)) selectedTheme = savedSel;
+  } catch (_) {}
+
+  let themeColors = themes[selectedTheme];
   const fragmentGoal = 3;
+  let fragments = 0;
 
   let player, drops, sparks, score, lives, running, speedBase, spawnBase, spawnTimer, last, startedAt;
-  let effect = { type: "none", timer: 0 }; // none | slow | fever
+  let effects = { slow: 0, fever: 0, rainbow: 0, magnet: 0, reflector: 0, shield: 0 };
+  let chainStage = 0; // 0 none,1 slow,2 fever->rainbow
   let audioCtx = null;
   let bgmInterval = null;
+  let wind = 0;
+  let windTimer = 0;
+  let floorPhase = 0;
+
+  let mission = null;
+  let lastMissTime = 0;
+  let missionTimer = 0;
+
+  let ghostData = null;
+  let ghostSample = [];
+
+  function initGhost() {
+    try {
+      ghostData = JSON.parse(localStorage.getItem("gwGhost") || "null");
+    } catch (_) {
+      ghostData = null;
+    }
+  }
+
+  function saveGhost(run) {
+    try {
+      localStorage.setItem("gwGhost", JSON.stringify(run));
+    } catch (_) {}
+  }
 
   function applyTheme(theme) {
     themeColors = theme;
@@ -113,7 +157,24 @@ markup = r"""
     root.style.setProperty("--pill-text", theme.pillText);
     root.style.setProperty("--btn1", theme.btn1);
     root.style.setProperty("--btn2", theme.btn2);
-    if (themeEl) themeEl.textContent = theme.name;
+    themeEl.textContent = theme.name;
+  }
+
+  function renderThemeSelect() {
+    themeSelect.innerHTML = "";
+    themes.forEach((t, idx) => {
+      const opt = document.createElement("option");
+      opt.value = idx;
+      opt.textContent = unlocked.has(idx) ? t.name : `${t.name} (Locked)`;
+      opt.disabled = !unlocked.has(idx);
+      if (idx === selectedTheme) opt.selected = true;
+      themeSelect.appendChild(opt);
+    });
+  }
+
+  function unlockTheme(idx) {
+    unlocked.add(idx);
+    localStorage.setItem("gwUnlocked", JSON.stringify([...unlocked]));
   }
 
   function blip(freq, length, gainNode, volume = 0.35, type = "square") {
@@ -144,12 +205,10 @@ markup = r"""
     const leadGain = audioCtx.createGain(); leadGain.gain.value = 1.0; leadGain.connect(master);
     const bassGain = audioCtx.createGain(); bassGain.gain.value = 0.55; bassGain.connect(master);
     const hatGain = audioCtx.createGain(); hatGain.gain.value = 0.35; hatGain.connect(master);
-
     let step = 0;
     bgmInterval = setInterval(() => {
       const leadNotes = [196, 220, 247, 262, 294, 330, 349];
       blip(leadNotes[step % leadNotes.length], 0.5, leadGain, 0.35, "square");
-
       if (score >= 80) {
         const bassNotes = [98, 110, 123, 131];
         blip(bassNotes[step % bassNotes.length], 0.65, bassGain, 0.25, "triangle");
@@ -171,48 +230,65 @@ markup = r"""
     sparks = [];
     score = 0;
     lives = 3;
-    speedBase = 28;  // slow start
-    spawnBase = 3.0; // generous interval start
+    speedBase = 28;
+    spawnBase = 3.0;
     spawnTimer = 0.2;
     running = true;
     startedAt = performance.now();
     last = performance.now();
-    effect = { type: "none", timer: 0 };
+    effects = { slow: 0, fever: 0, rainbow: 0, magnet: 0, reflector: 0, shield: 0 };
+    chainStage = 0;
     fragments = 0;
-    themeIndex = 0;
+    themeIndex = selectedTheme;
     applyTheme(themes[themeIndex]);
+    wind = 0;
+    windTimer = 4;
+    floorPhase = 0;
+    mission = null;
+    missionTimer = 0;
+    lastMissTime = performance.now();
+    ghostSample = [];
+    initMission();
     updateHUD();
+    renderThemeSelect();
   }
 
   function updateHUD() {
     scoreEl.textContent = score;
     livesEl.textContent = lives;
-    effectEl.textContent = effect.type === "none" ? "None" : `${effect.type} (${effect.timer.toFixed(1)}s)`;
+    const active = Object.entries(effects).filter(([k, v]) => v > 0).map(([k, v]) => `${k}:${v.toFixed(1)}s`);
+    effectEl.textContent = active.length ? active.join(",") : "None";
     fragEl.textContent = `${fragments}/${fragmentGoal}`;
+    missionEl.textContent = mission ? mission.text : "---";
   }
 
   function difficultyFactor() {
-    const elapsed = (performance.now() - startedAt) / 1000; // seconds
-    return 1 + Math.min(elapsed / 100, 1.8); // up to ~2.8x
+    const elapsed = (performance.now() - startedAt) / 1000;
+    return 1 + Math.min(elapsed / 100, 1.8);
   }
 
-  function effectSpeedMultiplier() {
-    if (effect.type === "slow") return 0.55;
-    if (effect.type === "fever") return 1.25;
-    return 1.0;
+  function speedMultiplier() {
+    let m = 1;
+    if (effects.slow > 0) m *= 0.55;
+    if (effects.fever > 0) m *= 1.25;
+    if (effects.rainbow > 0) m *= 0.05; // ほぼ停止
+    return m;
   }
 
-  function effectScoreMultiplier() {
-    if (effect.type === "fever") return 2;
-    return 1;
+  function scoreMultiplier() {
+    let m = 1;
+    if (effects.fever > 0) m *= 2;
+    if (effects.rainbow > 0) m *= 3;
+    return m;
   }
 
   function spawnDrop() {
     const x = 18 + Math.random() * (cvs.width - 36);
-    const vy = (speedBase * difficultyFactor() * effectSpeedMultiplier()) / 70;
-    const special = Math.random() < 0.16; // 16%で特殊宝石
-    const kind = special ? (Math.random() < 0.5 ? "slow" : "fever") : "normal";
-    drops.push({ x, y: -12, w: 12, h: 12, vy, kind });
+    const vy = (speedBase * difficultyFactor() * speedMultiplier()) / 70;
+    const special = Math.random() < 0.18;
+    const kinds = ["slow", "fever", "magnet", "reflector", "rainbow"];
+    const kind = special ? kinds[Math.floor(Math.random() * kinds.length)] : "normal";
+    drops.push({ x, y: -12, w: 12, h: 12, vy, kind, vx: 0 });
   }
 
   function spawnSparks(x, y) {
@@ -227,41 +303,120 @@ markup = r"""
   }
 
   function applyEffect(kind) {
+    if (kind === "slow") effects.slow = 6.0;
+    if (kind === "fever") effects.fever = 7.0;
+    if (kind === "rainbow") effects.rainbow = 3.0;
+    if (kind === "magnet") effects.magnet = 6.0;
+    if (kind === "reflector") effects.reflector = 7.0;
+  }
+
+  function handleCombo(kind) {
     if (kind === "slow") {
-      effect = { type: "slow", timer: 6.0 };
-    } else if (kind === "fever") {
-      effect = { type: "fever", timer: 7.0 };
+      chainStage = 1;
+      applyEffect("slow");
+      return;
     }
+    if (kind === "fever") {
+      if (chainStage === 1) {
+        // コンボ達成 → レインボー
+        chainStage = 0;
+        applyEffect("rainbow");
+      } else {
+        chainStage = 0;
+        applyEffect("fever");
+      }
+      return;
+    }
+    if (kind === "rainbow") {
+      chainStage = 0;
+      applyEffect("rainbow");
+      return;
+    }
+    chainStage = 0;
+    applyEffect(kind);
+  }
+
+  function initMission() {
+    const types = ["right", "left", "specials", "no_miss"];
+    const t = types[Math.floor(Math.random() * types.length)];
+    const now = performance.now();
+    missionTimer = now + 30000; // 30s
+    if (t === "right") mission = { type: t, target: 3, progress: 0, text: "右側で3個キャッチ (30s)" };
+    if (t === "left") mission = { type: t, target: 3, progress: 0, text: "左側で3個キャッチ (30s)" };
+    if (t === "specials") mission = { type: t, target: 2, progress: 0, text: "特殊宝石を2個キャッチ (30s)" };
+    if (t === "no_miss") mission = { type: t, target: 15, progress: 0, text: "15秒ミスなし (30s)" };
+  }
+
+  function completeMission() {
+    fragments += 1;
+    effects.shield = 5.0; // 一時シールド
+    maybeAdvanceTheme();
+    initMission();
+  }
+
+  function updateMission(onCatch, drop, dt) {
+    const now = performance.now();
+    if (!mission) return;
+    if (mission.type === "right" && onCatch && drop.x > cvs.width / 2) mission.progress++;
+    if (mission.type === "left" && onCatch && drop.x < cvs.width / 2) mission.progress++;
+    if (mission.type === "specials" && onCatch && drop.kind !== "normal") mission.progress++;
+    if (mission.type === "no_miss") {
+      const sinceMiss = (now - lastMissTime) / 1000;
+      mission.progress = Math.max(mission.progress, Math.min(mission.target, sinceMiss));
+    }
+    if (mission.progress >= mission.target) completeMission();
+    if (now > missionTimer) initMission();
   }
 
   function maybeAdvanceTheme() {
     if (fragments >= fragmentGoal) {
       fragments = 0;
-      themeIndex = (themeIndex + 1) % themes.length;
+      const next = (themeIndex + 1) % themes.length;
+      unlockTheme(next);
+      themeIndex = next;
+      selectedTheme = next;
+      localStorage.setItem("gwThemeIdx", selectedTheme);
       applyTheme(themes[themeIndex]);
+      renderThemeSelect();
     }
   }
 
   function step(dt) {
-    if (effect.type !== "none") {
-      effect.timer -= dt;
-      if (effect.timer <= 0) {
-        effect = { type: "none", timer: 0 };
-      }
-    }
+    Object.keys(effects).forEach(k => { if (effects[k] > 0) effects[k] = Math.max(0, effects[k] - dt); });
 
     player.x += player.vx * dt;
     player.x = Math.max(6, Math.min(cvs.width - player.w - 6, player.x));
+
+    windTimer -= dt;
+    if (windTimer <= 0) {
+      wind = (Math.random() - 0.5) * 60; // px/sec drift
+      windTimer = 6 + Math.random() * 6;
+    }
+    floorPhase += dt;
 
     spawnTimer -= dt;
     if (spawnTimer <= 0) {
       spawnDrop();
       const df = difficultyFactor();
-      const eff = effect.type === "slow" ? 1.25 : effect.type === "fever" ? 0.85 : 1.0; // slowで間隔長め、feverで短め
+      const eff = effects.slow > 0 ? 1.25 : effects.fever > 0 ? 0.85 : 1.0;
       spawnTimer = Math.max(0.36, (spawnBase * eff) / df);
     }
 
-    drops.forEach(d => d.y += d.vy * 60 * dt);
+    const timeScale = speedMultiplier();
+    drops.forEach(d => {
+      // reflector gives horizontal velocity
+      if (effects.reflector > 0 && d.vx === 0) d.vx = (Math.random() - 0.5) * 50;
+      if (effects.reflector > 0) {
+        d.x += d.vx * dt;
+        if (d.x < 2 || d.x > cvs.width - d.w - 2) d.vx *= -1;
+      }
+      d.x += wind * dt * 0.25;
+      d.y += d.vy * 60 * dt * timeScale;
+      if (effects.magnet > 0) {
+        const target = player.x + player.w / 2;
+        d.x += (target - d.x) * 0.6 * dt;
+      }
+    });
 
     for (let i = drops.length - 1; i >= 0; i--) {
       const d = drops[i];
@@ -269,23 +424,27 @@ markup = r"""
       const hitY = d.y + d.h >= player.y && d.y <= player.y + player.h;
       if (hitX && hitY) {
         drops.splice(i, 1);
-        const baseGain = 10 * effectScoreMultiplier();
-        score += baseGain;
-        speedBase = Math.min(speedBase + 1.2, 150); // mild accel per catch
+        const gain = 10 * scoreMultiplier();
+        score += gain;
+        speedBase = Math.min(speedBase + 1.2, 150);
         if (d.kind !== "normal") {
-          applyEffect(d.kind);
+          handleCombo(d.kind);
           if (Math.random() < 0.35) {
             fragments += 1;
             maybeAdvanceTheme();
           }
         }
         spawnSparks(player.x + player.w / 2, player.y);
+        updateMission(true, d, dt);
         continue;
       }
       if (d.y > cvs.height + 10) {
         drops.splice(i, 1);
-        lives -= 1;
-        if (lives <= 0) running = false;
+        if (effects.shield <= 0) {
+          lives -= 1;
+          lastMissTime = performance.now();
+          if (lives <= 0) running = false;
+        }
       }
     }
 
@@ -298,6 +457,7 @@ markup = r"""
       if (p.life <= 0) sparks.splice(i, 1);
     }
 
+    updateMission(false, null, dt);
     updateHUD();
   }
 
@@ -309,11 +469,12 @@ markup = r"""
     ctx.fillRect(0, 0, cvs.width, cvs.height);
 
     ctx.fillStyle = themeColors.grid;
+    const drift = Math.sin(floorPhase * 0.4) * 8;
     for (let y = 0; y < cvs.height; y += 24) {
-      ctx.fillRect(0, y, cvs.width, 1);
+      ctx.fillRect(drift, y, cvs.width, 1);
     }
     ctx.fillStyle = themeColors.ground;
-    ctx.fillRect(0, cvs.height - 38, cvs.width, 38);
+    ctx.fillRect(drift, cvs.height - 38, cvs.width, 38);
   }
 
   function drawPlayer() {
@@ -338,7 +499,7 @@ markup = r"""
       const gem = ctx.createLinearGradient(0, 0, d.w, d.h);
       if (isSpecial) {
         gem.addColorStop(0, "#e879f9");
-        gem.addColorStop(1, d.kind === "slow" ? "#38bdf8" : "#f59e0b");
+        gem.addColorStop(1, d.kind === "slow" ? "#38bdf8" : d.kind === "fever" ? "#f59e0b" : "#a3e635");
       } else {
         gem.addColorStop(0, themeColors.gemTop);
         gem.addColorStop(1, themeColors.gemBottom);
@@ -360,6 +521,21 @@ markup = r"""
     });
   }
 
+  function drawGhost(elapsed) {
+    if (!ghostData) return;
+    if (!ghostData.samples || ghostData.samples.length === 0) return;
+    const samples = ghostData.samples;
+    let gx = samples[samples.length - 1].x;
+    for (let i = 0; i < samples.length; i++) {
+      if (samples[i].t >= elapsed) { gx = samples[i].x; break; }
+    }
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = "#e5e7eb";
+    ctx.fillRect(gx, player.y, player.w, player.h);
+    ctx.restore();
+  }
+
   function drawOverlay() {
     if (!running) {
       ctx.fillStyle = "rgba(0,0,0,0.5)";
@@ -378,6 +554,7 @@ markup = r"""
     ctx.clearRect(0, 0, cvs.width, cvs.height);
     drawBackground();
     drawDrops();
+    drawGhost((performance.now() - startedAt) / 1000);
     drawPlayer();
     drawSparks();
     drawOverlay();
@@ -385,7 +562,17 @@ markup = r"""
 
   function loop(ts) {
     const dt = Math.min((ts - last) / 1000, 0.05);
-    if (running) step(dt);
+    if (running) {
+      step(dt);
+      // ghost record every 0.1s
+      if (ghostSample.length === 0 || ts - ghostSample[ghostSample.length - 1].raw > 100) {
+        ghostSample.push({ t: (ts - startedAt) / 1000, x: player.x, raw: ts });
+      }
+    } else {
+      if (ghostSample.length > 10) {
+        saveGhost({ samples: ghostSample.map(s => ({ t: s.t, x: s.x })) });
+      }
+    }
     draw();
     last = ts;
     requestAnimationFrame(loop);
@@ -409,6 +596,17 @@ markup = r"""
     if (e.code === "ArrowLeft" || e.code === "KeyA") pressed.delete("L");
     if (e.code === "ArrowRight" || e.code === "KeyD") pressed.delete("R");
     updateVel();
+  });
+
+  // theme selection
+  themeSelect.addEventListener("change", e => {
+    const idx = Number(e.target.value);
+    if (unlocked.has(idx)) {
+      selectedTheme = idx;
+      themeIndex = idx;
+      localStorage.setItem("gwThemeIdx", selectedTheme);
+      applyTheme(themes[idx]);
+    }
   });
 
   // mobile touch buttons
@@ -436,10 +634,13 @@ markup = r"""
 
   restartBtn.addEventListener("click", () => { ensureAudio(); reset(); });
 
+  initGhost();
+  applyTheme(themes[selectedTheme]);
+  renderThemeSelect();
   reset();
   requestAnimationFrame(loop);
 })();
 </script>
 """
 
-html(markup, height=580, scrolling=False)
+html(markup, height=620, scrolling=False)
