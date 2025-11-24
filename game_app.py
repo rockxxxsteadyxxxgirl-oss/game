@@ -1,131 +1,159 @@
-import random
-import time
-from typing import List
-
 import streamlit as st
+from streamlit.components.v1 import html
 
 
-st.set_page_config(page_title="ライトアウト - Python ブラウザゲーム", page_icon="🎮", layout="wide")
+st.set_page_config(page_title="Side Scroller - 障害物を避けるゲーム", page_icon="🏃", layout="centered")
 
-Board = List[List[bool]]
+st.title("横スクロール障害物ゲーム (Python + Streamlit)")
+st.caption("スペース / ↑ でジャンプ。障害物を避け続けてスコアを伸ばそう。Enter でリスタート。")
 
+game_html = """
+<style>
+  body { margin: 0; background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', sans-serif; }
+  #wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 8px; }
+  canvas { background: linear-gradient(180deg, #0f172a 0%, #111827 70%, #0f172a 100%); border: 1px solid #1f2937; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.35); }
+  .hud { display: flex; gap: 12px; font-size: 14px; }
+  .btn { background: #2563eb; color: white; border: none; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  .btn:active { transform: translateY(1px); }
+</style>
+<div id="wrap">
+  <div class="hud">
+    <div>Score: <span id="score">0</span></div>
+    <div>Best: <span id="best">0</span></div>
+    <button class="btn" id="restart">Restart</button>
+  </div>
+  <canvas id="game" width="820" height="420"></canvas>
+  <div style="font-size:13px; color:#9ca3af;">Space/ArrowUp: Jump ・ Enter/Restart: 再開 ・ 徐々に速くなるのでタイミング勝負</div>
+</div>
+<script>
+(() => {
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+  const scoreEl = document.getElementById("score");
+  const bestEl = document.getElementById("best");
+  const restartBtn = document.getElementById("restart");
+  const groundY = canvas.height - 60;
+  let player, obstacles, running, last, spawnTimer, score, best, speedBase;
 
-def init_board(size: int, density: float) -> Board:
-    """サイズと光の密度から初期盤面を作る。全消灯は避ける。"""
-    board = [[random.random() < density for _ in range(size)] for _ in range(size)]
-    if all(not cell for row in board for cell in row):
-        board[0][0] = True
-    return board
+  function reset() {
+    player = { x: 100, y: groundY, w: 30, h: 30, vy: 0, onGround: true };
+    obstacles = [];
+    running = true;
+    last = performance.now();
+    spawnTimer = 0;
+    score = 0;
+    speedBase = 4;
+    renderHUD();
+  }
 
+  function loadBest() {
+    const stored = localStorage.getItem("sideScrollerBest");
+    best = stored ? Number(stored) : 0;
+    bestEl.textContent = best.toFixed(0);
+  }
 
-def reset_game() -> None:
-    size = st.session_state.board_size
-    density = st.session_state.density
-    st.session_state.board = init_board(size, density)
-    st.session_state.moves = 0
-    st.session_state.started_at = time.time()
-    st.session_state.won = False
+  function saveBest() {
+    localStorage.setItem("sideScrollerBest", String(best));
+  }
 
+  function jump() {
+    if (!running) return;
+    if (player.onGround) {
+      player.vy = -11;
+      player.onGround = false;
+    }
+  }
 
-def ensure_state() -> None:
-    if "board_size" not in st.session_state:
-        st.session_state.board_size = 5
-    if "density" not in st.session_state:
-        st.session_state.density = 0.45
-    if "board" not in st.session_state:
-        reset_game()
-    if "history" not in st.session_state:
-        st.session_state.history = []
-    if "started_at" not in st.session_state:
-        st.session_state.started_at = time.time()
-    if "won" not in st.session_state:
-        st.session_state.won = False
+  function spawnObstacle() {
+    const h = 20 + Math.random() * 50;
+    const w = 20 + Math.random() * 40;
+    const gap = 120 + Math.random() * 120;
+    const speed = speedBase + Math.min(score / 300, 6);
+    obstacles.push({ x: canvas.width + 10, y: groundY + (30 - h), w, h, speed, gap });
+  }
 
+  function update(dt) {
+    // gravity
+    player.vy += 28 * dt;
+    player.y += player.vy;
+    if (player.y > groundY) {
+      player.y = groundY;
+      player.vy = 0;
+      player.onGround = true;
+    }
+    // obstacles
+    spawnTimer -= dt;
+    if (spawnTimer <= 0) {
+      spawnObstacle();
+      spawnTimer = 1.1 - Math.min(score / 500, 0.7);
+    }
+    obstacles.forEach(o => { o.x -= o.speed * 60 * dt; });
+    obstacles = obstacles.filter(o => o.x + o.w > -20);
+    // scoring
+    score += dt * 100;
+    if (score > best) { best = score; saveBest(); }
+    renderHUD();
+    // collisions
+    for (const o of obstacles) {
+      if (player.x < o.x + o.w && player.x + player.w > o.x && player.y < o.y + o.h && player.y + player.h > o.y) {
+        running = false;
+      }
+    }
+  }
 
-def toggle_cell(board: Board, row: int, col: int) -> None:
-    size = len(board)
-    for r, c in [(row, col), (row - 1, col), (row + 1, col), (row, col - 1), (row, col + 1)]:
-        if 0 <= r < size and 0 <= c < size:
-            board[r][c] = not board[r][c]
+  function renderHUD() {
+    scoreEl.textContent = score.toFixed(0);
+    bestEl.textContent = best.toFixed(0);
+  }
 
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // ground
+    ctx.fillStyle = "#1f2937";
+    ctx.fillRect(0, groundY + 30, canvas.width, 60);
+    ctx.fillStyle = "#374151";
+    ctx.fillRect(0, groundY + 25, canvas.width, 5);
+    // player
+    ctx.fillStyle = running ? "#22d3ee" : "#ef4444";
+    ctx.fillRect(player.x, player.y - player.h, player.w, player.h);
+    // obstacles
+    ctx.fillStyle = "#f97316";
+    obstacles.forEach(o => {
+      ctx.fillRect(o.x, o.y - o.h, o.w, o.h);
+    });
+    // text on game over
+    if (!running) {
+      ctx.fillStyle = "rgba(0,0,0,0.45)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#e5e7eb";
+      ctx.font = "bold 28px 'Segoe UI'";
+      ctx.textAlign = "center";
+      ctx.fillText("Game Over - Enter で再開", canvas.width / 2, canvas.height / 2);
+    }
+  }
 
-def handle_click(row: int, col: int) -> None:
-    if st.session_state.won:
-        return
-    toggle_cell(st.session_state.board, row, col)
-    st.session_state.moves += 1
-    if all(not cell for r in st.session_state.board for cell in r):
-        st.session_state.won = True
-        elapsed = time.time() - st.session_state.started_at
-        st.session_state.history.append(
-            {
-                "サイズ": st.session_state.board_size,
-                "密度": st.session_state.density,
-                "手数": st.session_state.moves,
-                "秒": round(elapsed, 2),
-            }
-        )
+  function loop(timestamp) {
+    const dt = Math.min((timestamp - last) / 1000, 0.05);
+    if (running) {
+      update(dt);
+    }
+    draw();
+    last = timestamp;
+    requestAnimationFrame(loop);
+  }
 
+  document.addEventListener("keydown", (e) => {
+    if (e.code === "Space" || e.code === "ArrowUp") jump();
+    if (e.code === "Enter" && !running) reset();
+  });
+  restartBtn.addEventListener("click", reset);
+  canvas.addEventListener("pointerdown", () => jump());
 
-def sidebar_controls() -> None:
-    st.sidebar.title("設定")
-    size = st.sidebar.slider("盤面サイズ", min_value=3, max_value=7, value=st.session_state.board_size, step=1)
-    density = st.sidebar.slider("初期の灯りの多さ", min_value=0.15, max_value=0.75, value=st.session_state.density, step=0.05)
-    if size != st.session_state.board_size or density != st.session_state.density:
-        st.session_state.board_size = size
-        st.session_state.density = density
-        reset_game()
-    if st.sidebar.button("新しく始める", type="primary"):
-        reset_game()
-    st.sidebar.markdown(
-        """
-        **遊び方**
-        - 光っているマスをすべて消灯させればクリア。
-        - マスをクリックするとそのマスと上下左右が反転。
-        - 盤面サイズと光の密度を変えて難易度を調整。
-        """
-    )
+  loadBest();
+  reset();
+  requestAnimationFrame(loop);
+})();
+</script>
+"""
 
-
-def render_board() -> None:
-    board: Board = st.session_state.board
-    st.subheader("ライトアウト盤面")
-    for row_idx, row in enumerate(board):
-        cols = st.columns(len(row), gap="small")
-        for col_idx, cell in enumerate(row):
-            label = "●" if cell else "○"
-            help_text = "クリックでこのマスと上下左右を反転"
-            if cols[col_idx].button(label, key=f"{row_idx}-{col_idx}", use_container_width=True, help=help_text):
-                handle_click(row_idx, col_idx)
-
-
-def render_status() -> None:
-    st.write(
-        f"手数: **{st.session_state.moves}** / サイズ: **{st.session_state.board_size}x{st.session_state.board_size}** "
-        f"/ 密度: **{st.session_state.density:.2f}**"
-    )
-    if st.session_state.won:
-        st.success("おめでとう！全部消灯しました。")
-    else:
-        st.info("すべての光を消してクリアを目指そう。")
-
-
-def render_history() -> None:
-    if not st.session_state.history:
-        return
-    st.markdown("#### クリア履歴")
-    st.dataframe(st.session_state.history, use_container_width=True, hide_index=True)
-
-
-def main() -> None:
-    ensure_state()
-    st.title("ブラウザで遊べるライトアウト (Python + Streamlit)")
-    st.caption("オープンソースな Python だけで作れるブラウザゲームのサンプル")
-    sidebar_controls()
-    render_status()
-    render_board()
-    render_history()
-
-
-if __name__ == "__main__":
-    main()
+html(game_html, height=520, scrolling=False)
