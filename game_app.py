@@ -1,10 +1,10 @@
 """
 Game & Watch style catch game.
-- ゆっくりスタート (spawnBase=3.0) から時間で徐々に難化
-- 特殊宝石でスロー/フィーバー効果を付与
-- テーマ断片を集めるとCSS変数を差し替えて見た目が進化
+- ゆっくりスタート (spawnBase=3.0) → 時間経過で徐々に難化
+- 特殊宝石でスロー/フィーバー効果
+- 断片を集めるとCSSテーマが進化（3テーマをループ）
 - BGMはスコア帯でレイヤー追加（リード/ベース/ハット）
-操作: 左右キー or A/D, Enter または Restart で再開。タッチボタンあり。
+操作: 左右キー or A/D, Enter/Space または Restart で再開。タッチボタンあり。
 """
 
 import streamlit as st
@@ -14,7 +14,7 @@ from streamlit.components.v1 import html
 st.set_page_config(page_title="Game & Watch Catch", page_icon="GW", layout="centered")
 
 st.title("Game & Watch style - Evolving look")
-st.caption("ゆっくり始まり、時間でじわじわ難化。特殊宝石でスロー/フィーバー、断片を集めてテーマ進化。")
+st.caption("ゆっくり始まり、時間でじわじわ難化。特殊宝石でスロー/フィーバー、断片3つでテーマ進化。")
 
 markup = r"""
 <style>
@@ -48,7 +48,7 @@ markup = r"""
     <button class="btn" id="restart">Restart</button>
   </div>
   <canvas id="lcd" width="360" height="440"></canvas>
-  <div class="soft">特殊宝石で「スロー(落下遅延)」や「フィーバー(スコア2倍&少し速い)」が一時発動。断片3つでテーマ進化。</div>
+  <div class="soft">特殊宝石でスロー/フィーバー。断片3つでテーマ進化。左右キー/A・D、Enter/Spaceで再スタート。</div>
 </div>
 <script>
 (() => {
@@ -370,7 +370,7 @@ markup = r"""
       ctx.fillText("GAME OVER", cvs.width / 2, cvs.height / 2 - 10);
       ctx.fillStyle = "#e2e8f0";
       ctx.font = "16px 'Segoe UI'";
-      ctx.fillText("Press Restart or Enter", cvs.width / 2, cvs.height / 2 + 14);
+      ctx.fillText("Press Restart / Enter / Space", cvs.width / 2, cvs.height / 2 + 14);
     }
   }
 
@@ -401,7 +401,7 @@ markup = r"""
   document.addEventListener("keydown", e => {
     if (e.code === "ArrowLeft" || e.code === "KeyA") pressed.add("L");
     if (e.code === "ArrowRight" || e.code === "KeyD") pressed.add("R");
-    if (!running && e.code === "Enter") reset();
+    if (!running && (e.code === "Enter" || e.code === "Space")) reset();
     ensureAudio();
     updateVel();
   });
